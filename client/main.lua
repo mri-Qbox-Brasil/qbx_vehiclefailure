@@ -149,10 +149,14 @@ local function repairVehicleHalf(veh)
 end
 
 ---@return boolean isDriver if ped is driving an automobile or motorcycle
-local function isPedDrivingAVehicle()
+local function isPedDrivingAVehicle(ignoreClass)
 	if cache.seat ~= -1 then
 		return false
 	end
+
+    if ignoreClass then
+        return true
+    end
 
 	local class = GetVehicleClass(cache.vehicle)
 	-- We don't want planes, helicopters, bicycles and trains
@@ -308,7 +312,7 @@ RegisterNetEvent('qb-vehiclefailure:client:CleanVehicle', function()
 end)
 
 RegisterNetEvent('iens:repaira', function()
-	if not isPedDrivingAVehicle() then
+	if not isPedDrivingAVehicle(true) then
 		exports.qbx_core:Notify(locale('error.inside_veh_req'))
 		return
 	end
@@ -322,6 +326,7 @@ RegisterNetEvent('iens:repaira', function()
 	healthEngineLast = 1000.0
 	healthPetrolTankLast = 1000.0
 	SetVehicleEngineOn(vehicle, true, false)
+    exports[Config.FuelScript]:SetFuel(vehicle, 100.0)
 end)
 
 RegisterNetEvent('iens:besked', function()
