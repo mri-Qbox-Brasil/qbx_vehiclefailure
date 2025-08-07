@@ -456,7 +456,9 @@ local function setVehicleEngineTorqueMultiplier()
 			end
 		end
 		if brk > fBrakeForce - 0.02 then brk = fBrakeForce end -- Make sure we can brake max.
-		SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fBrakeForce', brk)  -- Set new Brake Force multiplier
+        if DoesEntityExist(vehicle) and GetVehiclePedIsIn(cache.ped, false) and (cache.ped == GetPedInVehicleSeat(vehicle, -1)) then
+			SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fBrakeForce', brk)  -- Set new Brake Force multiplier
+		end
 	end
 	if cfg.limpMode == true and healthEngineNew < cfg.engineSafeGuard + 5 then
 		factor = cfg.limpModeMultiplier
