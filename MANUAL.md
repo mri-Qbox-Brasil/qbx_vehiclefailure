@@ -1,260 +1,259 @@
-# Manual do qbx_vehiclefailure
+# qbx_vehiclefailure — Manual
 
-Sistema avançado de falha de veículos para Qbox — simulação abrangente de danos e falhas com degradação realista, falha em cascata e mecânica de reparo.
+Sistema de dano e falha progressiva de veículos para Qbox: degradação lenta, falha em cascata, perda de torque, prevenção de capotamento e reparo por itens.
 
-## Funcionalidades Principais
+---
 
-### 💥 Danos Realistas
-- **Motor**: Dano progressivo com falha em cascata
-- **Carroceria**: Deformação visual e funcional
-- **Tanque de Combustível**: Dano que pode causar explosão
-- Multiplicadores de dano por classe de veículo
+## Sumário
 
-### 🔄 Sistema de Falha
-- **Degradação**: Veículos degradam lentamente quando danificados
-- **Falha em Cascata**: Do menor ao catastrófico
-  - Acima de 250: Funcionamento normal
-  - 200-250: Degradação lenta (fumaça leve)
-  - Abaixo de 200: Falha rápida (fumaça pesada, perda de potência)
-  - Abaixo de 50: Motor morre (se limpMode = false)
+1. [Dependências](#dependências)
+2. [Instalação](#instalação)
+3. [Permissões (ACE)](#permissões-ace)
+4. [Configuração](#configuração)
+5. [Comandos](#comandos)
+6. [Itens utilizáveis](#itens-utilizáveis)
+7. [Curva de falha do motor](#curva-de-falha-do-motor)
+8. [Integrações](#integrações)
+9. [Entrypoints para outros recursos](#entrypoints-para-outros-recursos)
+10. [Localização](#localização)
+11. [Estrutura de arquivos](#estrutura-de-arquivos)
 
-### 🔧 Reparos
-- **Kit de Reparo**: Repara para 500 de saúde (meio reparo)
-- **Kit Avançado**: Repara completamente para 1000
-- **Kit de Limpeza**: Limpa veículo e remove sujeira
-- Animações de reparo incluídas
+---
 
-### 🛞 Furos de Pneu
-- Furos aleatórios baseados na direção
-- Intervalo configurável
-- Furos mais prováveis em terrenos acidentados
+## Dependências
 
-### 🚫 Torque do Motor
-- Potência reduzida conforme danos aumentam
-- Simulação realista de perda de performance
+| Recurso | Obrigatório | Observação |
+|---|---|---|
+| `qbx_core` | Sim | Framework base, `CreateUseableItem`, `Notify`, módulos `lib.lua` e `playerdata.lua` |
+| `ox_lib` | Sim | `lib.addCommand`, `lib.progressBar`, `lib.getClosestVehicle`, locale |
+| `qbx_mechanicjob` | Sim | Chamado sem verificação de existência em `damageRandomComponent` (`SetVehicleStatus` / `GetVehicleStatus`). Sem ele, o dano de componentes gera erro no client |
+| Script de combustível | Sim | O nome do recurso vem de `Config.FuelScript` (padrão `cdn-fuel`). O export `SetFuel` é chamado no reparo admin (`iens:repaira`) |
 
-### 🛑 Sistema de Freios
-- Freios modificados baseados na configuração SundayDriver
-- Resposta escalonada para direção lenta
+---
 
-### 🔒 Modo Manco (Limp Mode)
-- Veículo nunca falha completamente (configurável)
-- Multiplicador de torque reduzido mantém veículo funcional
+## Instalação
 
-### 🎮 Sunday Driver
-- Resposta do acelerador escalonada
-- Facilita direção em baixa velocidade
-- Curvas de acelerador e freio configuráveis
+1. Copie a pasta `qbx_vehiclefailure` para `resources/`.
+2. Adicione ao `server.cfg`:
+   ```
+   ensure qbx_vehiclefailure
+   ```
+3. Ajuste `Config.FuelScript` em `config.lua` para o nome do recurso de combustível que você usa. Se o recurso apontado não existir, o comando `/fix` falha ao chamar `SetFuel`.
+4. Cadastre os itens `repairkit`, `advancedrepairkit` e `cleaningkit` no seu inventário (`ox_inventory` ou equivalente). Eles são registrados como usáveis pelo servidor, mas a definição do item em si é do inventário.
+5. Não há SQL.
+6. **Conflitos** — não rode junto com outros scripts de dano de veículo (`qb-vehiclefailure`, BVA, LegacyFuel damage). Todos escrevem em `SetVehicleEngineHealth` e nos handling floats do mesmo veículo. O `cfg.compatibilityMode` existe justamente para reduzir atrito com scripts que mexem na saúde do tanque de combustível.
 
-### 🔧 Blips de Mecânico
-- Mostra localizações de mecânicos no mapa
-- Auxilia jogadores a encontrar reparo
+---
 
-### 🔄 Dano de Componentes
-Danos aleatórios a componentes internos:
-- Radiador
-- Eixo
-- Embreagem
-- Combustível
-- Freios
+## Permissões (ACE)
 
-### 💨 Fumaça do Escape
-- Fumaça visual quando motor está danificado
-- Intensidade baseada no nível de dano
+O comando `/fix` é registrado com `restricted = 'group.admin'`. Garanta o ACE no `server.cfg`:
+
+```
+add_ace group.admin command.fix allow
+```
+
+---
+
+## Configuração
+
+Tudo fica em `config.lua`, dividido em quatro blocos: `Config`, `cfg`, `repairCfg` e `BackEngineVehicles`.
+
+### `Config`
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `Config.FuelScript` | string | Sim | Nome do recurso de combustível cujo export `SetFuel` é chamado no reparo admin. Padrão: `cdn-fuel` |
+| `Config.Paid` | bool | Não | Declarado no config, mas **não é lido por nenhum arquivo do recurso** na versão atual |
+| `Config.Price` | number | Não | Declarado no config, mas **não é lido por nenhum arquivo do recurso** na versão atual |
+
+### `cfg` — comportamento do dano
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `deformationMultiplier` | number | Não | Multiplicador da deformação visual da colisão. `0.0` a `10.0`. `-1` não altera o handling. Dano visual não sincroniza bem entre jogadores |
+| `deformationExponent` | number | Não | Expoente que comprime `fDeformationDamageMult` do handling em direção a `1.0`, aproximando o comportamento entre carros. `1` = sem mudança. Nunca use zero ou negativo |
+| `collisionDamageExponent` | number | Não | Mesmo efeito, aplicado a `fCollisionDamageMult` |
+| `engineDamageExponent` | number | Não | Mesmo efeito, aplicado a `fEngineDamageMult` |
+| `damageFactorEngine` | number | Não | Multiplicador do dano ao motor. Faixa sã: 1 a 100 |
+| `damageFactorBody` | number | Não | Multiplicador do dano à carroceria. Faixa sã: 1 a 100 |
+| `damageFactorPetrolTank` | number | Não | Multiplicador do dano ao tanque. Faixa sã: 1 a 200 |
+| `weaponsDamageMultiplier` | number | Não | Dano recebido de armas. `0.0` a `10.0`. `-1` não altera o handling |
+| `degradingHealthSpeedFactor` | number | Não | Velocidade da degradação lenta de saúde. Valores maiores degradam mais rápido |
+| `cascadingFailureSpeedFactor` | number | Não | Velocidade da falha em cascata quando a saúde cai abaixo do limiar |
+| `degradingFailureThreshold` | number | Não | Abaixo deste valor de saúde do motor começa a degradação lenta |
+| `cascadingFailureThreshold` | number | Não | Abaixo deste valor começa a falha em cascata |
+| `engineSafeGuard` | number | Não | Piso da saúde do motor. Muito alto e o carro não solta fumaça ao morrer; muito baixo e pega fogo com um tiro no motor |
+| `torqueMultiplierEnabled` | bool | Não | Reduz o torque do motor conforme ele se danifica |
+| `limpMode` | bool | Não | Quando `true`, o motor nunca morre por completo — sempre dá para chegar ao mecânico |
+| `limpModeMultiplier` | number | Não | Multiplicador de torque aplicado no modo manco. Faixa sã: 0.05 a 0.25 |
+| `preventVehicleFlip` | bool | Não | Quando `true`, impede desvirar um veículo capotado (bloqueia os controles 59 e 60 com roll acima de 75 graus e velocidade abaixo de 2) |
+| `sundayDriver` | bool | Não | Escalona a resposta do acelerador e do freio para facilitar direção lenta. Não funciona com acelerador binário (teclado); o segurar do freio e o "parar sem dar ré" funcionam mesmo no teclado |
+| `sundayDriverAcceleratorCurve` | number | Não | Curva de resposta do acelerador. `0.0` a `10.0`. Sem efeito no teclado |
+| `sundayDriverBrakeCurve` | number | Não | Curva de resposta do freio. `0.0` a `10.0`. Sem efeito no teclado |
+| `displayBlips` | bool | Não | Mostra blips das oficinas listadas em `repairCfg.mechanics` no mapa |
+| `compatibilityMode` | bool | Não | Impede que o recurso force a saúde do tanque de combustível, evitando falha aleatória do motor com scripts como BVA 2.01. Desativa a prevenção de explosão |
+| `randomTireBurstInterval` | number | Não | Minutos (estatísticos) dirigindo acima de ~22 mph até um furo de pneu aleatório. `0` desativa o recurso |
+| `classDamageMultiplier` | tabela | Sim | Multiplicador aplicado a `damageFactorEngine`, `damageFactorBody` e `damageFactorPetrolTank` por classe de veículo (índices `0` a `21`, seguindo as classes do GTA V). Motocicletas (`8`) vêm com `0.0` no padrão, ou seja, sem dano multiplicado |
+
+O arquivo traz ainda um segundo bloco `cfg` comentado (configuração alternativa, mais tolerante a dano). Para usá-lo, comente o bloco ativo e descomente esse.
+
+### `repairCfg`
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `mechanics` | array | Sim | Lista de oficinas. Cada entrada tem `name` (nome do blip), `id` (sprite do blip — 446 é a chave inglesa, 72 a lata de spray), `r` (raio em metros) e `x`, `y`, `z` |
+| `fixMessageCount` | number | Sim | Quantidade de mensagens de sucesso rotativas do reparo de beira de estrada. Precisa bater com as chaves `success.fix_message_1..N` dos locales |
+| `noFixMessageCount` | number | Sim | Quantidade de mensagens de recusa rotativas. Precisa bater com as chaves `error.nofix_message_1..N` dos locales |
+
+O raio das oficinas serve para bloquear o reparo de beira de estrada (`iens:repair`): dentro de uma oficina, o evento não faz nada.
+
+### `BackEngineVehicles`
+
+Tabela de hashes de modelo (`` [`ninef`] = true ``) usada para decidir qual porta abrir e de que lado o jogador precisa estar durante o reparo. Veículos listados abrem o capô traseiro (porta 5); os demais abrem o dianteiro (porta 4). Adicione seus modelos custom aqui.
+
+---
 
 ## Comandos
 
 | Comando | Permissão | Descrição |
-|----------|-------------|-------------|
-| `/fix` | `group.admin` | Reparar veículo completamente |
-| `/repair` | - | Reparar veículo (requer kit de reparo) |
-| `/repairfull` | - | Reparar completamente (requer kit avançado) |
-| `/clean` | - | Limpar veículo (requer kit de limpeza) |
+|---|---|---|
+| `/fix` | `command.fix` (registrado como `group.admin`) | Repara totalmente o veículo do jogador: limpa, conserta, religa o motor, zera a sujeira e enche o tanque via `Config.FuelScript` |
 
-## Itens Utilizáveis
+---
 
-| Item | Ação | Descrição |
-|------|--------|-------------|
-| `repairkit` | Reparo meio | Repara para 500 de saúde com animação |
-| `advancedrepairkit` | Reparo completo | Repara para 1000 de saúde |
-| `cleaningkit` | Limpar | Limpa veículo e remove sujeira |
+## Itens utilizáveis
 
-## Configuração (config.lua)
+Registrados no servidor via `exports.qbx_core:CreateUseableItem`. O jogador precisa estar **fora** do veículo e a até 2 metros do capô (dianteiro ou traseiro, conforme `BackEngineVehicles`).
 
-### Dano Principal
+| Item | Efeito | Progresso |
+|---|---|---|
+| `repairkit` | Repara o motor para 500 e conserta os 5 pneus. Recusa se a saúde do motor já for maior ou igual a 500 | 10 a 20 segundos, animação `mini@repair` |
+| `advancedrepairkit` | Repara o motor para 1000 e conserta os 5 pneus. Sem verificação de saúde mínima | 20 a 30 segundos, animação `mini@repair` |
+| `cleaningkit` | Zera a sujeira e remove decals do veículo mais próximo (até 3 metros). Sincroniza a lavagem para todos os clientes | 10 a 20 segundos, cenário `WORLD_HUMAN_MAID_CLEAN` |
+
+O item só é consumido quando a barra de progresso completa. Cancelar aborta sem gastar.
+
+---
+
+## Curva de falha do motor
+
+Com os valores padrão de `cfg`:
+
+| Faixa de saúde do motor | Comportamento |
+|---|---|
+| Acima de `degradingFailureThreshold` (250) | Sem degradação passiva. A saúde só cai com dano real, multiplicado pelos `damageFactor*` e pelo `classDamageMultiplier` da classe |
+| Entre `cascadingFailureThreshold` (200) e 250 | Degradação lenta contínua enquanto o jogador dirige, controlada por `degradingHealthSpeedFactor` |
+| Abaixo de `cascadingFailureThreshold` (200) | Falha em cascata: a saúde despenca em ritmo de `cascadingFailureSpeedFactor` até bater no piso |
+| No `engineSafeGuard` (50) | Veículo fica `undriveable` e emite fogo (`ent_ray_heli_aprtmnt_l_fire`). Com `limpMode = true`, o motor não morre e o torque cai para `limpModeMultiplier` |
+
+Enquanto o jogador dirige, o dano de motor, carroceria e tanque é medido a cada 50 ms; o maior dos três deltas escalados vira a perda de saúde do motor. Toda perda relevante também danifica um componente aleatório entre `radiator`, `axle`, `clutch`, `fuel` e `brakes` no `qbx_mechanicjob`.
+
+Com `compatibilityMode = false` (padrão), a saúde do tanque é mantida no mínimo em 750 para prevenir explosões.
+
+---
+
+## Integrações
+
+### qbx_mechanicjob
+
+A cada perda relevante de saúde de motor ou carroceria, o recurso degrada um componente aleatório do veículo:
+
 ```lua
-damageFactorEngine = 3.0          -- Multiplicador de dano do motor
-damageFactorBody = 3.0             -- Multiplicador de dano da carroceria
-damageFactorPetrolTank = 32.0      -- Multiplicador do tanque
-engineDamageExponent = 0.3         -- Compressão da curva de dano
-deformationMultiplier = -1         -- Deformação visual (-1 = não tocar)
-deformationExponent = 0.5         -- Compressão da curva de deformação
-weaponsDamageMultiplier = 1.2      -- Dano de armas
+exports.qbx_mechanicjob:SetVehicleStatus(plate, component, currentValue - randomDamage)
 ```
 
-### Limites de Falha
+Os componentes afetados são `radiator`, `axle`, `clutch`, `fuel` e `brakes`. É o que conecta a direção agressiva ao trabalho de mecânico.
+
+### Script de combustível
+
+O reparo admin (`/fix` → `iens:repaira`) enche o tanque chamando `exports[Config.FuelScript]:SetFuel(vehicle, 100.0)`. Qualquer recurso de combustível que exponha `SetFuel(vehicle, level)` serve — basta apontar `Config.FuelScript` para ele.
+
+### Aviões, helicópteros, bicicletas e trens
+
+O reparo de beira de estrada (`iens:repair`) ignora as classes 15 (helicópteros), 16 (aviões), 21 (trens) e 13 (bicicletas). O sistema de dano em si roda em qualquer veículo em que o jogador esteja no assento de motorista.
+
+---
+
+## Entrypoints para outros recursos
+
+O recurso não exporta funções. A integração é toda por eventos.
+
+### Eventos de client
+
 ```lua
-degradingFailureThreshold = 250.0   -- Iniciar degradação lenta
-cascadingFailureThreshold = 200.0   -- Iniciar falha rápida
-engineSafeGuard = 50.0              -- Saúde mínima (impede fogo)
+-- Repara o veículo mais próximo para 500 de saúde. Consome um repairkit.
+TriggerClientEvent('qb-vehiclefailure:client:RepairVehicle', source)
+
+-- Repara o veículo mais próximo para 1000 de saúde. Consome um advancedrepairkit.
+TriggerClientEvent('qb-vehiclefailure:client:RepairVehicleFull', source)
+
+-- Limpa o veículo mais próximo. Consome um cleaningkit.
+TriggerClientEvent('qb-vehiclefailure:client:CleanVehicle', source)
+
+-- Sincroniza a lavagem de um veículo para os demais clientes.
+TriggerClientEvent('qb-vehiclefailure:client:SyncWash', -1, vehicleNetId)
 ```
 
-### Velocidade de Degradação
+### Eventos legacy `iens:*`
+
+Compatibilidade com o fluxo original do `vehiclefailure`. Todos são client events.
+
+| Evento | Efeito |
+|---|---|
+| `iens:repaira` | Reparo total do veículo em que o jogador está (usado pelo `/fix`). Enche o tanque |
+| `iens:repair` | Reparo de beira de estrada. Só funciona fora do raio de uma oficina, com o motor abaixo de `cascadingFailureThreshold + 5` e óleo acima de zero. Restaura a saúde para `cascadingFailureThreshold + 5` e consome 2/3 do óleo |
+| `iens:besked` | Notifica que o serviço de guincho está disponível |
+| `iens:notAllowed` | Notifica falta de permissão |
+
+### Eventos de servidor
+
 ```lua
-degradingHealthSpeedFactor = 2.0    -- Velocidade de degradação
-cascadingFailureSpeedFactor = 4.0   -- Velocidade de falha em cascata
+-- Remove 1 unidade de um item do inventário do jogador.
+TriggerServerEvent('qb-vehiclefailure:removeItem', 'repairkit')
+
+-- Remove 1 cleaningkit e faz o broadcast da lavagem.
+TriggerServerEvent('qb-vehiclefailure:server:removewashingkit', vehicle)
 ```
 
-### Alternâncias de Recursos
-```lua
-torqueMultiplierEnabled = true     -- Reduzir torque conforme dano
-limpMode = false                   -- Motor nunca falha (manco)
-limpModeMultiplier = 0.15          -- Multiplicador no modo manco
-preventVehicleFlip = true          -- Impedir capotamento
-sundayDriver = true                -- Resposta escalonada do acelerador
-sundayDriverAcceleratorCurve = 7.5 -- Curva do acelerador
-sundayDriverBrakeCurve = 5.0       -- Curva do freio
-displayBlips = false               -- Mostrar blips de mecânicos
-randomTireBurstInterval = 0        -- Minutos entre furos (0=desabilitado)
-compatibilityMode = false           -- Não modificar tanque de combustível
+---
+
+## Localização
+
+As notificações e labels das barras de progresso são traduzidas via `ox_lib` locale. Os arquivos ficam em `locales/`:
+
+`ar.json`, `cs.json`, `da.json`, `de.json`, `en.json`, `es.json`, `fr.json`, `it.json`, `pt-br.json`, `pt.json`, `sv.json`
+
+O locale ativo é definido pela convar `ox:locale` no `server.cfg`:
+
+```
+setr ox:locale "pt-br"
 ```
 
-### Multiplicadores por Classe
-```lua
-classDamageMultiplier = {
-    [0] = 0.3,  -- Compacts
-    [1] = 0.3,  -- Sedans
-    [2] = 0.3,  -- SUVs
-    [3] = 0.5,  -- Coupes
-    [4] = 0.5,  -- Muscle
-    [5] = 0.7,  -- Sports Classics
-    [6] = 0.8,  -- Sports
-    [7] = 1.0,  -- Super
-    [8] = 0.0,  -- Motorcycles (sem multiplicador)
-    -- ... configure por classe
-}
-```
+Ao adicionar um idioma, mantenha as chaves `success.fix_message_1..N` e `error.nofix_message_1..N` alinhadas com `repairCfg.fixMessageCount` e `repairCfg.noFixMessageCount`.
 
-### Veículos com Motor Traseiro
-```lua
-BackEngineVehicles = {
-    [`ninef`] = true,
-    [`adder`] = true,
-    [`t20`] = true,
-    -- adicione mais...
-}
-```
+---
 
-### Localizações de Mecânicos
-```lua
-repairCfg.mechanics = {
-    {name='Garage', id=446, r=25.0, x=-337.0, y=-135.0, z=39.0},
-    -- adicione mais...
-}
-```
-
-## Eventos
-
-### Client Events
-
-| Evento | Payload | Descrição |
-|-------|----------|-------------|
-| `qb-vehiclefailure:client:RepairVehicle` | - | Reparar para 500 |
-| `qb-vehiclefailure:client:RepairVehicleFull` | - | Reparar completamente |
-| `qb-vehiclefailure:client:CleanVehicle` | - | Limpar veículo |
-| `qb-vehiclefailure:client:SyncWash` | `veh` | Sincronizar lavagem |
-
-### Server Events
-
-| Evento | Payload | Descrição |
-|-------|----------|-------------|
-| `qb-vehiclefailure:removeItem` | `item` | Remover item usado |
-| `qb-vehiclefailure:server:removewashingkit` | `veh` | Remover kit e sincronizar |
-
-### Eventos de Compatibilidade
-| Evento | Fonte | Descrição |
-|-------|--------|-------------|
-| `iens:repaira` | Admin | Reparo completo |
-| `iens:repair` | Mecânico | Reparo na estrada |
-| `iens:besked` | Mecânico | Sem serviço disponível |
-| `iens:notAllowed` | Mecânico | Sem permissão |
-
-## Estrutura de Arquivos
+## Estrutura de arquivos
 
 ```
 qbx_vehiclefailure/
 ├── client/
-│   └── main.lua           # Cálculo de danos, reparo, simulação
+│   └── main.lua          — loop de dano, torque, sunday driver, anti-flip, reparo e limpeza
 ├── server/
-│   └── main.lua           # Itens utilizáveis, comandos
-├── config.lua              # Todas as configurações
-└── locales/               # Traduções
+│   └── main.lua          — comando /fix, itens usáveis, remoção de itens
+├── config.lua            — Config, cfg (dano), repairCfg (oficinas) e BackEngineVehicles
+├── locales/
+│   ├── ar.json
+│   ├── cs.json
+│   ├── da.json
+│   ├── de.json
+│   ├── en.json
+│   ├── es.json
+│   ├── fr.json
+│   ├── it.json
+│   ├── pt-br.json
+│   ├── pt.json
+│   └── sv.json
+└── fxmanifest.lua
 ```
-
-## Dependências
-
-| Dependência | Versão Mínima | Obrigatória |
-|------------|-------------------|----------|
-| ox_lib | - | ✅ |
-| qbx_core | - | ✅ |
-| qbx_mechanicjob | - | ✅ (para dano de componentes) |
-| cdn-fuel | - | ✅ (configurável) |
-
-## Comportamento de Dano
-
-### Saúde 1000-250
-- Funcionamento normal
-- Sem efeitos visuais
-
-### Saúde 250-200
-- Início de degradação lenta
-- Fumaça leve do escape
-- Perda mínima de torque
-
-### Saúde 200-50
-- Falha em cascata rápida
-- Fumaça pesada
-- Perda significativa de potência
-- Furos de pneu mais frequentes
-
-### Saúde abaixo de 50
-- Motor morre (se limpMode = false)
-- Fumaça constante
-- Veículo inutilizável
-
-### lmpMode ativado
-- Motor nunca morre completamente
-- Velocidade limitada pelo `limpModeMultiplier`
-- Veículo ainda funcional mas lento
-
-## Solução de Problemas
-
-### Veículo não danifica
-- Verifique `damageFactorEngine` e `damageFactorBody`
-- Confirme que o veículo não está em modo Deus
-- Verifique se o recurso está carregado
-
-### Fumaça não aparece
-- Verifique se a saúde está abaixo de 250
-- Confirme que o veículo tem motor ligado
-- Verifique se há erros no console
-
-### Reparo não funciona
-- Verifique se tem o item no inventário
-- Confirme que o veículo está próximo
-- Verifique as animações de reparo
-
-### Furos não acontecem
-- Verifique `randomTireBurstInterval`
-- Se 0, furos estão desabilitados
-- Aumente o intervalo para mais frequência
-
-### Dano de componentes não ocorre
-- Verifique se qbx_mechanicjob está rodando
-- Confirme que a feature está ativada
-- Verifique os logs do servidor
-
-### Capotamento ainda ocorre
-- `preventVehicleFlip = true` deve estar configurado
-- Reinicie o recurso após alteração
-- Verifique se há conflitos com outros recursos
