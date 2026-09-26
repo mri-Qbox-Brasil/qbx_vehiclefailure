@@ -1,4 +1,4 @@
-# qbx_vehiclefailure — Manual
+# qbx_vehiclefailure: Manual
 
 Sistema de dano e falha progressiva de veículos para Qbox: degradação lenta, falha em cascata, perda de torque, prevenção de capotamento e reparo por itens.
 
@@ -41,7 +41,7 @@ Sistema de dano e falha progressiva de veículos para Qbox: degradação lenta, 
 3. Ajuste `Config.FuelScript` em `config.lua` para o nome do recurso de combustível que você usa. Se o recurso apontado não existir, o comando `/fix` falha ao chamar `SetFuel`.
 4. Cadastre os itens `repairkit`, `advancedrepairkit` e `cleaningkit` no seu inventário (`ox_inventory` ou equivalente). Eles são registrados como usáveis pelo servidor, mas a definição do item em si é do inventário.
 5. Não há SQL.
-6. **Conflitos** — não rode junto com outros scripts de dano de veículo (`qb-vehiclefailure`, BVA, LegacyFuel damage). Todos escrevem em `SetVehicleEngineHealth` e nos handling floats do mesmo veículo. O `cfg.compatibilityMode` existe justamente para reduzir atrito com scripts que mexem na saúde do tanque de combustível.
+6. **Conflitos**: não rode junto com outros scripts de dano de veículo (`qb-vehiclefailure`, BVA, LegacyFuel damage). Todos escrevem em `SetVehicleEngineHealth` e nos handling floats do mesmo veículo. O `cfg.compatibilityMode` existe justamente para reduzir atrito com scripts que mexem na saúde do tanque de combustível.
 
 ---
 
@@ -67,7 +67,7 @@ Tudo fica em `config.lua`, dividido em quatro blocos: `Config`, `cfg`, `repairCf
 | `Config.Paid` | bool | Não | Declarado no config, mas **não é lido por nenhum arquivo do recurso** na versão atual |
 | `Config.Price` | number | Não | Declarado no config, mas **não é lido por nenhum arquivo do recurso** na versão atual |
 
-### `cfg` — comportamento do dano
+### `cfg` (comportamento do dano)
 
 | Campo | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
@@ -85,9 +85,10 @@ Tudo fica em `config.lua`, dividido em quatro blocos: `Config`, `cfg`, `repairCf
 | `cascadingFailureThreshold` | number | Não | Abaixo deste valor começa a falha em cascata |
 | `engineSafeGuard` | number | Não | Piso da saúde do motor. Muito alto e o carro não solta fumaça ao morrer; muito baixo e pega fogo com um tiro no motor |
 | `torqueMultiplierEnabled` | bool | Não | Reduz o torque do motor conforme ele se danifica |
-| `limpMode` | bool | Não | Quando `true`, o motor nunca morre por completo — sempre dá para chegar ao mecânico |
+| `limpMode` | bool | Não | Quando `true`, o motor nunca morre por completo, então sempre dá para chegar ao mecânico |
 | `limpModeMultiplier` | number | Não | Multiplicador de torque aplicado no modo manco. Faixa sã: 0.05 a 0.25 |
 | `preventVehicleFlip` | bool | Não | Quando `true`, impede desvirar um veículo capotado (bloqueia os controles 59 e 60 com roll acima de 75 graus e velocidade abaixo de 2) |
+| `preventAirControl` | bool | Não | Quando `true`, impede controlar o veículo no ar (bloqueia os controles 59, 61 e 62 enquanto ele está sem contato com o chão). Não vale para barcos, helicópteros e aviões |
 | `sundayDriver` | bool | Não | Escalona a resposta do acelerador e do freio para facilitar direção lenta. Não funciona com acelerador binário (teclado); o segurar do freio e o "parar sem dar ré" funcionam mesmo no teclado |
 | `sundayDriverAcceleratorCurve` | number | Não | Curva de resposta do acelerador. `0.0` a `10.0`. Sem efeito no teclado |
 | `sundayDriverBrakeCurve` | number | Não | Curva de resposta do freio. `0.0` a `10.0`. Sem efeito no teclado |
@@ -102,7 +103,7 @@ O arquivo traz ainda um segundo bloco `cfg` comentado (configuração alternativ
 
 | Campo | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `mechanics` | array | Sim | Lista de oficinas. Cada entrada tem `name` (nome do blip), `id` (sprite do blip — 446 é a chave inglesa, 72 a lata de spray), `r` (raio em metros) e `x`, `y`, `z` |
+| `mechanics` | array | Sim | Lista de oficinas. Cada entrada tem `name` (nome do blip), `id` (sprite do blip: 446 é a chave inglesa, 72 a lata de spray), `r` (raio em metros) e `x`, `y`, `z` |
 | `fixMessageCount` | number | Sim | Quantidade de mensagens de sucesso rotativas do reparo de beira de estrada. Precisa bater com as chaves `success.fix_message_1..N` dos locales |
 | `noFixMessageCount` | number | Sim | Quantidade de mensagens de recusa rotativas. Precisa bater com as chaves `error.nofix_message_1..N` dos locales |
 
@@ -167,7 +168,7 @@ Os componentes afetados são `radiator`, `axle`, `clutch`, `fuel` e `brakes`. É
 
 ### Script de combustível
 
-O reparo admin (`/fix` → `iens:repaira`) enche o tanque chamando `exports[Config.FuelScript]:SetFuel(vehicle, 100.0)`. Qualquer recurso de combustível que exponha `SetFuel(vehicle, level)` serve — basta apontar `Config.FuelScript` para ele.
+O reparo admin (`/fix` → `iens:repaira`) enche o tanque chamando `exports[Config.FuelScript]:SetFuel(vehicle, 100.0)`. Qualquer recurso de combustível que exponha `SetFuel(vehicle, level)` serve, basta apontar `Config.FuelScript` para ele.
 
 ### Aviões, helicópteros, bicicletas e trens
 
@@ -239,10 +240,10 @@ Ao adicionar um idioma, mantenha as chaves `success.fix_message_1..N` e `error.n
 ```
 qbx_vehiclefailure/
 ├── client/
-│   └── main.lua          — loop de dano, torque, sunday driver, anti-flip, reparo e limpeza
+│   └── main.lua          # loop de dano, torque, sunday driver, anti-flip, reparo e limpeza
 ├── server/
-│   └── main.lua          — comando /fix, itens usáveis, remoção de itens
-├── config.lua            — Config, cfg (dano), repairCfg (oficinas) e BackEngineVehicles
+│   └── main.lua          # comando /fix, itens usáveis, remoção de itens
+├── config.lua            # Config, cfg (dano), repairCfg (oficinas) e BackEngineVehicles
 ├── locales/
 │   ├── ar.json
 │   ├── cs.json
